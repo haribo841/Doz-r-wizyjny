@@ -3,6 +3,10 @@
   "WorkspaceRootPath": "C:\\Users\\Adam\\source\\repos\\haribo841\\Doz-r-wizyjny\\",
   "Documents": [
     {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\Adam\\source\\repos\\haribo841\\Doz-r-wizyjny\\Background modeling\\Trajectory.py||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:Background modeling\\Trajectory.py||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
       "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\Adam\\source\\repos\\haribo841\\Doz-r-wizyjny\\Background modeling\\Heatmap.py||{8B382828-6202-11D1-8870-0000F87579D2}",
       "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:Background modeling\\Heatmap.py||{8B382828-6202-11D1-8870-0000F87579D2}"
     },
@@ -31,19 +35,32 @@
             {
               "$type": "Document",
               "DocumentIndex": 0,
+              "Title": "Trajectory.py",
+              "DocumentMoniker": "C:\\Users\\Adam\\source\\repos\\haribo841\\Doz-r-wizyjny\\Background modeling\\Trajectory.py",
+              "RelativeDocumentMoniker": "Background modeling\\Trajectory.py",
+              "ToolTip": "C:\\Users\\Adam\\source\\repos\\haribo841\\Doz-r-wizyjny\\Background modeling\\Trajectory.py",
+              "RelativeToolTip": "Background modeling\\Trajectory.py",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAcAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.002457|",
+              "WhenOpened": "2025-12-18T19:19:24.196Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
               "Title": "Heatmap.py",
               "DocumentMoniker": "C:\\Users\\Adam\\source\\repos\\haribo841\\Doz-r-wizyjny\\Background modeling\\Heatmap.py",
               "RelativeDocumentMoniker": "Background modeling\\Heatmap.py",
               "ToolTip": "C:\\Users\\Adam\\source\\repos\\haribo841\\Doz-r-wizyjny\\Background modeling\\Heatmap.py",
               "RelativeToolTip": "Background modeling\\Heatmap.py",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAUAAAAcAAAAAAAAAA==",
+              "ViewState": "AgIAADwAAAAAAAAAAAAAAFEAAAAXAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.002457|",
               "WhenOpened": "2025-12-17T20:04:18.236Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 1,
+              "DocumentIndex": 2,
               "Title": "Background_modeling.py",
               "DocumentMoniker": "C:\\Users\\Adam\\source\\repos\\haribo841\\Doz-r-wizyjny\\Background modeling\\Background_modeling.py",
               "RelativeDocumentMoniker": "Background modeling\\Background_modeling.py",
@@ -51,8 +68,7 @@
               "RelativeToolTip": "Background modeling\\Background_modeling.py",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAAYAAAB6AAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.002457|",
-              "WhenOpened": "2025-12-17T20:04:17.255Z",
-              "EditorCaption": ""
+              "WhenOpened": "2025-12-17T20:04:17.255Z"
             }
           ]
         },
