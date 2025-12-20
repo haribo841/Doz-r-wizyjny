@@ -1,0 +1,213 @@
+﻿import cv2
+import numpy as np
+import imutils
+from collections import OrderedDict
+
+# --- KLASA TRACKERA (Standardowa) ---
+class CentroidTracker:
+    def __init__(self, maxDisappeared=40, maxDistance=50):
+        self.nextObjectID = 0
+        self.objects = OrderedDict()
+        self.disappeared = OrderedDict()
+        self.maxDisappeared = maxDisappeared
+        self.maxDistance = maxDistance
+
+    def register(self, centroid):
+        self.objects[self.nextObjectID] = centroid
+        self.disappeared[self.nextObjectID] = 0
+        self.nextObjectID += 1
+
+    def deregister(self, objectID):
+        del self.objects[objectID]
+        del self.disappeared[objectID]
+
+    def update(self, inputCentroids):
+        if len(inputCentroids) == 0:
+            for objectID in list(self.disappeared.keys()):
+                self.disappeared[objectID] += 1
+                if self.disappeared[objectID] > self.maxDisappeared:
+                    self.deregister(objectID)
+            return self.objects
+
+        if len(self.objects) == 0:
+            for i in range(0, len(inputCentroids)):
+                self.register(inputCentroids[i])
+        else:
+            objectIDs = list(self.objects.keys())
+            objectCentroids = list(self.objects.values())
+            D = np.linalg.norm(np.array(objectCentroids)[:, np.newaxis] - np.array(inputCentroids), axis=2)
+            rows = D.min(axis=1).argsort()
+            cols = D.argmin(axis=1)[rows]
+            usedRows = set()
+            usedCols = set()
+
+            for (row, col) in zip(rows, cols):
+                if row in usedRows or col in usedCols: continue
+                if D[row, col] > self.maxDistance: continue
+                objectID = objectIDs[row]
+                self.objects[objectID] = inputCentroids[col]
+                self.disappeared[objectID] = 0
+                usedRows.add(row)
+                usedCols.add(col)
+
+            unusedRows = set(range(0, D.shape[0])).difference(usedRows)
+            unusedCols = set(range(0, D.shape[1])).difference(usedCols)
+
+            if D.shape[0] >= D.shape[1]:
+                for row in unusedRows:
+                    objectID = objectIDs[row]
+                    self.disappeared[objectID] += 1
+                    if self.disappeared[objectID] > self.maxDisappeared:
+                        self.deregister(objectID)
+            else:
+                for col in unusedCols:
+                    self.register(inputCentroids[col])
+        return self.objects
+
+# --- GŁÓWNA PĘTLA ---
+print("Start... Naciśnij 'q' by wyjść.")
+
+# Ensure required objects are initialized (they may be created elsewhere in the project)
+# If they are created in other modules, these lines can be removed.
+try:
+    cap
+except NameError:
+    cap = cv2.VideoCapture(0)
+
+try:
+    backSub
+except NameError:
+    backSub = cv2.createBackgroundSubtractorMOG2(history=500, varThreshold=16, detectShadows=True)
+
+try:
+    ct
+except NameError:
+    ct = CentroidTracker(maxDisappeared=40, maxDistance=60)
+
+try:
+    trackableObjects
+except NameError:
+    trackableObjects = {}
+
+try:
+    line_y
+except NameError:
+    line_y = 250
+
+try:
+    count_people
+except NameError:
+    count_people = 0
+
+while True:
+    ret, frame = cap.read()
+    if not ret: break
+
+    # Zmniejszamy obraz
+    frame = imutils.resize(frame, width=600)
+    height, width = frame.shape[:2]
+
+    # --- POPRAWKA: Definicja strefy wykluczenia (TERAZ, gdy znamy już height) ---
+    billboard_rect = (0, 0, 260, height) 
+
+    # --- KROK 1: "CZARNA DZIURA" (Hard ROI) ---
+    roi_mask = np.ones((height, width), dtype=np.uint8) * 255
+    (bx, by, bw, bh) = billboard_rect
+    cv2.rectangle(roi_mask, (bx, by), (bx + bw, by + bh), 0, -1)
+
+    # apply ROI to frame early so background subtractor does not learn billboard area
+    frame_roi = cv2.bitwise_and(frame, frame, mask=roi_mask)
+
+    # --- KROK 2: MOG2 ---
+    fgMask = backSub.apply(frame_roi)
+    _, fgMask = cv2.threshold(fgMask, 240, 255, cv2.THRESH_BINARY)
+
+    # --- KROK 3: APLIKACJA ROI (redundant but safe) ---
+    fgMask = cv2.bitwise_and(fgMask, fgMask, mask=roi_mask)
+
+    # --- KROK 4: CZYSZCZENIE ---
+    # stronger morphological ops to separate merged people
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    fgMask = cv2.morphologyEx(fgMask, cv2.MORPH_OPEN, kernel, iterations=2)
+    fgMask = cv2.morphologyEx(fgMask, cv2.MORPH_CLOSE, kernel, iterations=2)
+    fgMask = cv2.morphologyEx(fgMask, cv2.MORPH_DILATE, kernel, iterations=3)
+
+    # --- KROK 5: ODDZIELANIE ZBIOROWISKA (distance transform + watershed) ---
+    # prepare markers for watershed
+    # sure background
+    sure_bg = cv2.dilate(fgMask, kernel, iterations=3)
+    # sure foreground
+    dist_transform = cv2.distanceTransform(fgMask, cv2.DIST_L2, 5)
+    _, sure_fg = cv2.threshold(dist_transform, 0.4 * dist_transform.max(), 255, 0)
+    sure_fg = np.uint8(sure_fg)
+    unknown = cv2.subtract(sure_bg, sure_fg)
+
+    # markers
+    _, markers = cv2.connectedComponents(sure_fg)
+    # add one to all labels so that sure background is 1 instead of 0
+    markers = markers + 1
+    # mark the unknown region with zero
+    markers[unknown == 255] = 0
+
+    # apply watershed on colored ROI image
+    frame_watershed = frame_roi.copy()
+    markers = cv2.watershed(frame_watershed, markers)
+
+    # build separated mask where markers > 1
+    separated_mask = np.zeros_like(fgMask)
+    separated_mask[markers > 1] = 255
+
+    # clean separated mask
+    separated_mask = cv2.morphologyEx(separated_mask, cv2.MORPH_OPEN, kernel, iterations=1)
+
+    # --- KROK 6: DETEKCJA ---
+    contours, _ = cv2.findContours(separated_mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    inputCentroids = []
+
+    for c in contours:
+        area = cv2.contourArea(c)
+        if area < 300: continue  # lower threshold to detect smaller separated heads
+        if area > 10000: continue
+
+        (x, y, w, h) = cv2.boundingRect(c)
+        aspect_ratio = w / float(h)
+
+        if aspect_ratio > 1.2 and area > 800:
+            inputCentroids.append((int(x + w/3), int(y + h/2)))
+            inputCentroids.append((int(x + 2*w/3), int(y + h/2)))
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 255, 0), 2)
+        else:
+            inputCentroids.append((int(x + w/2), int(y + h/2)))
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+    # --- TRACKING ---
+    objects = ct.update(inputCentroids)
+
+    for (objectID, centroid) in objects.items():
+        to = trackableObjects.get(objectID, None)
+        if to is None:
+            to = {"centroids": [centroid], "counted": False}
+        else:
+            to["centroids"].append(centroid)
+            if not to["counted"]:
+                if line_y - 15 < centroid[1] < line_y + 15:
+                    count_people += 1
+                    to["counted"] = True
+        trackableObjects[objectID] = to
+
+        cv2.putText(frame, f"{objectID}", (centroid[0]-5, centroid[1]-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+        cv2.circle(frame, (centroid[0], centroid[1]), 4, (0, 255, 0), -1)
+
+    # --- WIZUALIZACJA ---
+    cv2.rectangle(frame, (bx, by), (bx+bw, by+bh), (0, 0, 255), 2)
+    cv2.line(frame, (0, line_y), (width, line_y), (0, 255, 255), 2)
+    cv2.putText(frame, f'Ludzie: {count_people}', (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+
+    cv2.imshow('Kamera', frame)
+    cv2.imshow('Maska (Bez billboardu)', separated_mask)
+
+    if cv2.waitKey(30) & 0xFF == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()

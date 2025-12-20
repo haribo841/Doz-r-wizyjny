@@ -1,0 +1,160 @@
+﻿import cv2
+import numpy as np
+import imutils
+from collections import OrderedDict
+
+# --- KLASA TRACKERA (Standardowa) ---
+class CentroidTracker:
+    def __init__(self, maxDisappeared=40, maxDistance=50):
+        self.nextObjectID = 0
+        self.objects = OrderedDict()
+        self.disappeared = OrderedDict()
+        self.maxDisappeared = maxDisappeared
+        self.maxDistance = maxDistance
+
+    def register(self, centroid):
+        self.objects[self.nextObjectID] = centroid
+        self.disappeared[self.nextObjectID] = 0
+        self.nextObjectID += 1
+
+    def deregister(self, objectID):
+        del self.objects[objectID]
+        del self.disappeared[objectID]
+
+    def update(self, inputCentroids):
+        if len(inputCentroids) == 0:
+            for objectID in list(self.disappeared.keys()):
+                self.disappeared[objectID] += 1
+                if self.disappeared[objectID] > self.maxDisappeared:
+                    self.deregister(objectID)
+            return self.objects
+
+        if len(self.objects) == 0:
+            for i in range(0, len(inputCentroids)):
+                self.register(inputCentroids[i])
+        else:
+            objectIDs = list(self.objects.keys())
+            objectCentroids = list(self.objects.values())
+            D = np.linalg.norm(np.array(objectCentroids)[:, np.newaxis] - np.array(inputCentroids), axis=2)
+            rows = D.min(axis=1).argsort()
+            cols = D.argmin(axis=1)[rows]
+            usedRows = set()
+            usedCols = set()
+
+            for (row, col) in zip(rows, cols):
+                if row in usedRows or col in usedCols: continue
+                if D[row, col] > self.maxDistance: continue
+                objectID = objectIDs[row]
+                self.objects[objectID] = inputCentroids[col]
+                self.disappeared[objectID] = 0
+                usedRows.add(row)
+                usedCols.add(col)
+
+            unusedRows = set(range(0, D.shape[0])).difference(usedRows)
+            unusedCols = set(range(0, D.shape[1])).difference(usedCols)
+
+            if D.shape[0] >= D.shape[1]:
+                for row in unusedRows:
+                    objectID = objectIDs[row]
+                    self.disappeared[objectID] += 1
+                    if self.disappeared[objectID] > self.maxDisappeared:
+                        self.deregister(objectID)
+            else:
+                for col in unusedCols:
+                    self.register(inputCentroids[col])
+        return self.objects
+
+# --- GŁÓWNA PĘTLA ---
+print("Start... Naciśnij 'q' by wyjść.")
+
+while True:
+    ret, frame = cap.read()
+    if not ret: break
+
+    # Zmniejszamy obraz
+    frame = imutils.resize(frame, width=600)
+    
+    # TUTAJ obliczamy wysokość i szerokość
+    height, width = frame.shape[:2]
+
+    # --- POPRAWKA: Definicja strefy wykluczenia (TERAZ, gdy znamy już height) ---
+    # (x, y, szerokość, wysokość) - dostosuj '260' jeśli billboard nadal wystaje
+    billboard_rect = (0, 0, 260, height) 
+
+    # --- KROK 1: "CZARNA DZIURA" (Hard ROI) ---
+    # Tworzymy białą maskę (wszystko widoczne)
+    roi_mask = np.ones((height, width), dtype=np.uint8) * 255
+    
+    # Rysujemy CZARNY prostokąt w miejscu billboardu (wycinamy go)
+    (bx, by, bw, bh) = billboard_rect
+    cv2.rectangle(roi_mask, (bx, by), (bx + bw, by + bh), 0, -1)
+
+    # --- KROK 2: MOG2 ---
+    fgMask = backSub.apply(frame)
+    _, fgMask = cv2.threshold(fgMask, 240, 255, cv2.THRESH_BINARY)
+    
+    # --- KROK 3: APLIKACJA ROI ---
+    fgMask = cv2.bitwise_and(fgMask, fgMask, mask=roi_mask)
+
+    # --- KROK 4: CZYSZCZENIE ---
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    fgMask = cv2.morphologyEx(fgMask, cv2.MORPH_OPEN, kernel, iterations=2)
+    fgMask = cv2.morphologyEx(fgMask, cv2.MORPH_DILATE, kernel, iterations=2)
+
+    # --- KROK 5: DETEKCJA ---
+    contours, _ = cv2.findContours(fgMask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    inputCentroids = []
+
+    for c in contours:
+        area = cv2.contourArea(c)
+        if area < 400: continue
+        
+        # Ignoruj giganty (błędy detekcji)
+        if area > 4000: continue
+
+        (x, y, w, h) = cv2.boundingRect(c)
+        aspect_ratio = w / float(h)
+
+        # Logika podziału (Split)
+        if aspect_ratio > 1.2 and area > 800:
+            inputCentroids.append((int(x + w/3), int(y + h/2)))
+            inputCentroids.append((int(x + 2*w/3), int(y + h/2)))
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 255, 0), 2)
+        else:
+            inputCentroids.append((int(x + w/2), int(y + h/2)))
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+    # --- TRACKING ---
+    objects = ct.update(inputCentroids)
+
+    for (objectID, centroid) in objects.items():
+        to = trackableObjects.get(objectID, None)
+        if to is None:
+            to = {"centroids": [centroid], "counted": False}
+        else:
+            to["centroids"].append(centroid)
+            if not to["counted"]:
+                if line_y - 15 < centroid[1] < line_y + 15:
+                    count_people += 1
+                    to["counted"] = True
+        trackableObjects[objectID] = to
+
+        # Wizualizacja ID
+        cv2.putText(frame, f"{objectID}", (centroid[0]-5, centroid[1]-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+        cv2.circle(frame, (centroid[0], centroid[1]), 4, (0, 255, 0), -1)
+
+    # --- WIZUALIZACJA ---
+    # Pokaż gdzie jest strefa wykluczenia (czerwona ramka)
+    cv2.rectangle(frame, (bx, by), (bx+bw, by+bh), (0, 0, 255), 2)
+    
+    cv2.line(frame, (0, line_y), (width, line_y), (0, 255, 255), 2)
+    cv2.putText(frame, f'Ludzie: {count_people}', (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+
+    cv2.imshow('Kamera', frame)
+    cv2.imshow('Maska (Bez billboardu)', fgMask)
+
+    if cv2.waitKey(30) & 0xFF == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
