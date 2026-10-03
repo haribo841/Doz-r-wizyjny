@@ -21,6 +21,9 @@ env/
 *.csv
 *.log
 
+# Reviewed documentation figures are part of the portfolio.
+!docs/images/*.png
+
 # --- Systemowe ---
 .DS_Store
 Thumbs.db
