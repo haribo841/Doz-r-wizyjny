@@ -29,7 +29,7 @@ predictor.set_image(image_np)
 
 # Punkt centralny (dla car.jpg środek to samochód)
 input_points = np.array([[image_np.shape[1] // 2, image_np.shape[0] // 2]])
-input_labels = np.array([1])  # 1 = obiekt
+input_labels = np.ones(1, dtype=int)  # Etykieta punktu: obiekt
 
 print("3. Generowanie maski...")
 masks, scores, logits = predictor.predict(
@@ -61,7 +61,7 @@ plt.imshow(image)
 # Używamy prostego sposobu wyświetlania maski
 show_mask = np.zeros((*best_mask.shape, 4))
 show_mask[best_mask, 3] = 0.5                  # Przezroczystość (Alpha)
-show_mask[best_mask, :3] = [30/255, 144/255, 255/255] # Kolor niebieski
+show_mask[best_mask, :3] = [30/255, 144/255, 1.0] # Kolor niebieski
 
 plt.imshow(show_mask)
 plt.title(f"Segmentacja (Pewność: {scores[best_mask_idx]:.2f})")

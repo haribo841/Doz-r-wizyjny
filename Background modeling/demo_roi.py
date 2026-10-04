@@ -20,7 +20,6 @@ gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
 # Progowanie za pomocą metody Otsu
 _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-# _, thresh = cv2.threshold(gray, 128, 255, cv2.THRESH_BINARY) # Progowanie globalne ze stałym progiem
 cv2.imwrite(os.path.join(output_dir, "thresholded_image.jpg"), thresh)
 
 # Wyznaczenie ROI jako największego obszaru w obrazie binarnym
@@ -42,7 +41,6 @@ cv2.imwrite(os.path.join(output_dir, "roi_threshold.jpg"), roi_thresh)
 
 # ================= ROI na podstawie konturów =================
 # Wykrywanie krawędzi za pomocą operatora Canny'ego
-# edges = cv2.Canny(gray, 50, 150)
 edges = cv2.Canny(gray, 30, 100)# Zmniejszone progi - większa czułość
 cv2.imwrite(os.path.join(output_dir, "edges_canny.jpg"), edges)
 

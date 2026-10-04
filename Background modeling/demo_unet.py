@@ -60,7 +60,7 @@ def build_unet(input_shape, num_classes):
     return model
 
 # **Funkcja do wczytywania danych**
-def load_pet_data(image_dir, mask_dir, img_size=(128, 128)):#(256, 256)):
+def load_pet_data(image_dir, mask_dir, img_size=(128, 128)):
     """
     Wczytuje obrazy i maski z odpowiednich katalogów.
     Maski są przekształcane z wartości [1, 2, 3] na [0, 1, 2].
@@ -93,7 +93,6 @@ mask_dir = os.path.join(base_dir, "annotations", "trimaps")
 
 # **Wczytanie danych**
 images, masks = load_pet_data(image_dir, mask_dir)# miejsce wywołania
-#images, masks = load_pet_data(image_dir, mask_dir, img_size=(256, 256))
 
 # **Podział danych na treningowe i testowe**
 X_train, X_test, y_train, y_test = train_test_split(images, masks, test_size=0.2, random_state=42)
@@ -101,18 +100,14 @@ X_train, X_test, y_train, y_test = train_test_split(images, masks, test_size=0.2
 # **Budowa modelu**
 num_classes = 3
 input_shape = (128, 128, 3) #definicja wejścia modelu
-#input_shape = (256, 256, 3)
 model = build_unet(input_shape, num_classes)
 
 # **Kompilacja modelu**
 model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
 
 # **Trening modelu**
-#history = model.fit(X_train, y_train, validation_split=0.1, batch_size=8, epochs=10)#30)
 # Wariant A (Większy wsad): Stabilniejszy, szybszy obliczeniowo
 history = model.fit(X_train, y_train, validation_split=0.1, batch_size=32, epochs=10)
-# Wariant B (Mniejszy wsad): Częstsze aktualizacje wag
-#history = model.fit(X_train, y_train, validation_split=0.1, batch_size=4, epochs=10)
 
 # **Testowanie modelu**
 predictions = model.predict(X_test)

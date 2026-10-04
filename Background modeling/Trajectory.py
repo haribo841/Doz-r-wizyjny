@@ -21,6 +21,7 @@ object_paths = {}
 # Słownik: {id_obiektu: (B, G, R)} - kolory
 object_colors = {}
 next_object_id = 0
+color_generator = np.random.default_rng()
 
 # Puste płótno do rysowania trajektorii (aby nie znikały w nowej klatce)
 trajectory_overlay = None
@@ -95,7 +96,7 @@ while True:
             # Nie znaleziono - tworzymy nowy obiekt
             object_paths[next_object_id] = [(cX, cY)]
             # Losowy kolor dla nowego obiektu 
-            object_colors[next_object_id] = (np.random.randint(50, 255), np.random.randint(50, 255), np.random.randint(50, 255))
+            object_colors[next_object_id] = tuple(int(channel) for channel in color_generator.integers(50, 255, size=3))
             active_ids.append(next_object_id)
             next_object_id += 1
 

@@ -26,11 +26,20 @@ python -m pip install numpy matplotlib scipy
 python docs/render_kalman_example.py
 ```
 
-The wrapper imports the checked-in Kalman code, executes its single-object example with its fixed seed, and saves `docs/images/kalman-tracking.png`. It changes only how the plot is displayed/saved, not the tracking equations or scenario. The image is a real numerical result, not a screenshot of a surveillance product.
+The wrapper imports the checked-in Kalman code, executes its single-object example with seed `0`, and saves `docs/images/kalman-tracking.png` without opening a window. Simulations use an explicit NumPy `Generator` instead of the global random state. The move to this generator changes the numerical samples relative to the historical example, so the README figure was regenerated. The tracking equations and scenario definitions remain the same.
 
-Validated on Windows, Python 3.12.14, NumPy 2.5.3, Matplotlib 3.11.2, and SciPy 1.18.1. This verification covers the synthetic tracking example, not every optional model or video script.
+The current example is validated on Windows with Python 3.13.1, NumPy 2.2.4, Matplotlib 3.10.1, and SciPy 1.16.3. All three Kalman experiments run without GUI windows. Repeated rendering is deterministic within that environment; exact plot pixels can differ between Matplotlib versions.
 
-Rechecked on Windows on 2026-10-03 with Python 3.13.1, NumPy 2.2.4, Matplotlib 3.10.1, and SciPy 1.16.3: all three Kalman experiments ran without GUI windows, and basic assignment checks passed with both SciPy and the greedy fallback. Two runs of the figure wrapper produced identical PNG files in that environment. Exact plot pixels can differ between Matplotlib versions. The existing `SyntaxWarning` about the `\sigma` plot-label escape remains in `KalmanFilter.py`; it did not prevent execution.
+## Automated regression checks
+
+```powershell
+python -m pip install numpy matplotlib scipy opencv-python imutils
+python -m unittest discover -s tests -v
+```
+
+The tests cover Kalman filtering and synthetic simulations, shared centroid tracking and counting, and image-analysis helpers with synthetic images. They do not open a camera, train a model, or process private recordings. The two counting demos use `centroid_tracker.py` with their original distance and disappearance thresholds.
+
+Verification on 2026-10-04: all 45 regression tests passed, all three Kalman experiments rendered without GUI windows, and two consecutive README-figure renders produced identical files.
 
 ## Run a video/image experiment
 

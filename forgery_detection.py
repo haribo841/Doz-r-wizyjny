@@ -1,197 +1,126 @@
-﻿import cv2
-import numpy as np
-import os
 from collections import Counter
 from pathlib import Path
 
+import cv2
+import numpy as np
+
 
 def list_images(folder):
-    folder = Path(folder)
-    exts = {'.png', '.jpg', '.tif'}
-    files = [
-        p for p in folder.glob('*')
-        if p.is_file() and p.suffix.lower() in exts
-    ]
-    files.sort()
-    return files  # ← Path!
+    extensions = {'.png', '.jpg', '.tif'}
+    return sorted(
+        path for path in Path(folder).glob('*')
+        if path.is_file() and path.suffix.lower() in extensions
+    )
+
+
+def zigzag_values(block):
+    """Read DCT coefficients in the original alternating diagonal order."""
+    rows, columns = block.shape
+    diagonals = [[] for _ in range(rows + columns - 1)]
+    for row in range(rows):
+        for column in range(columns):
+            diagonal = row + column
+            if diagonal % 2 == 0:
+                diagonals[diagonal].insert(0, block[row, column])
+            else:
+                diagonals[diagonal].append(block[row, column])
+    return np.asarray([value for diagonal in diagonals for value in diagonal], dtype=float)
+
+
+def block_descriptors(gray, block_size=8, quantization=16):
+    """Describe the same block origins as the original laboratory script."""
+    row_count = max(0, gray.shape[0] - block_size)
+    column_count = max(0, gray.shape[1] - block_size)
+    descriptors = np.empty((row_count * column_count, 18))
+    for row in range(row_count):
+        for column in range(column_count):
+            block = gray[row:row + block_size, column:column + block_size]
+            coefficients = cv2.dct(np.float32(block) / 255.0)
+            scaled = np.uint8(np.float32(coefficients) * 255.0)
+            features = np.floor(zigzag_values(scaled)[:16] / quantization)
+            descriptors[row * column_count + column] = np.append(features, [row, column])
+    return descriptors
+
+
+def find_similar_blocks(descriptors, similarity=5, distance=20, search_range=10):
+    """Keep nearby feature vectors only when their image positions are distant."""
+    matches = []
+    for index in range(len(descriptors) - search_range):
+        for offset in range(1, search_range):
+            first, second = descriptors[index], descriptors[index + offset]
+            if np.linalg.norm(first[:16] - second[:16]) > similarity:
+                continue
+            position1, position2 = first[-2:], second[-2:]
+            if np.linalg.norm(position1 - position2) < distance:
+                continue
+            matches.append(np.concatenate((position1, position2, position1 - position2)))
+    return np.asarray(matches, dtype=float).reshape(-1, 6)
+
+
+def consistent_shift_matches(matches, vector_limit=20):
+    """Reject shift vectors that occur less often than the selected threshold."""
+    counts = Counter(tuple(match[4:6]) for match in matches)
+    retained = [match for match in matches if counts[tuple(match[4:6])] >= vector_limit]
+    return np.asarray(retained, dtype=float).reshape(-1, 6)
+
+
+def forgery_mask(shape, matches, block_size=8):
+    mask = np.zeros(shape, dtype=np.uint8)
+    for match in matches:
+        y1, x1, y2, x2 = (int(value) for value in match[:4])
+        cv2.rectangle(mask, (x1, y1), (x1 + block_size, y1 + block_size), 255, -1)
+        cv2.rectangle(mask, (x2, y2), (x2 + block_size, y2 + block_size), 255, -1)
+    if len(matches) > 0:
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+    return mask
+
+
+def show_scaled(name, image, max_height=800):
+    height, width = image.shape[:2]
+    if height > max_height:
+        scale = max_height / height
+        image = cv2.resize(image, (int(width * scale), int(height * scale)))
+    cv2.imshow(name, image)
+
 
 def copy_move_forgery_detection(img_path: Path):
-    quantization = 16 #Stopień uproszczenia (kwantyzacja DCT)
-    tsimilarity = 5 # euclid distance similarity threshhold Próg podobieństwa euklidesowego (im mniejszy, tym bardziej rygorystyczny)
-    tdistance = 20 # euclid distance between pixels threshold Minimalny dystans fizyczny (żeby nie wykrywać gładkiego tła obok siebie)
-    vector_limit = 20 # shift vector elimination limit Ile takich samych przesunięć musi wystąpić, by uznać to za fałszerstwo
-    block_counter = 0
-    block_size = 8 # Ile takich samych przesunięć musi wystąpić, by uznać to za fałszerstwo
-
-
-    # 1. WCZYTANIE OBRAZU
     img_path = img_path.resolve()
     print(f"1. Wczytywanie obrazu: {img_path.name}")
-
     image = cv2.imread(str(img_path))
-
     if image is None:
         raise FileNotFoundError(f"Cannot read image: {img_path}")
 
-    # Konwersja do skali szarości
     gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-    arr = np.array(gray)
-    temp = []
-    # Pusta maska predykcji (wynikowa) - czarne tło
-    prediction_mask = np.zeros((arr.shape[0], arr.shape[1]), dtype=np.uint8)
-
-    column = arr.shape[1] - block_size
-    row = arr.shape[0] - block_size
-    dcts = np.empty((((column+1)*(row+1)), quantization+2))
-
-    #----------------------------------------------------------------------------------------
-
-    # 2. ANALIZA BLOKOWA I DCT
     print("2. Przetwarzanie bloków i DCT...")
+    descriptors = block_descriptors(gray)
+    print(f"   Przeanalizowano {len(descriptors)} bloków.")
 
-    for i in range(0, row):
-        for j in range(0, column):
-
-            blocks = arr[i:i+block_size, j:j+block_size]
-            imf = np.float32(blocks) / 255.0  # float conversion/scale
-            dst = cv2.dct(imf)  # the dct
-            blocks = np.uint8(np.float32(dst) * 255.0 ) # convert back
-            # zigzag scan
-            solution = [[] for k in range(block_size + block_size - 1)]
-            for k in range(block_size):
-                for l in range(block_size):
-                    sum = k + l
-                    if (sum % 2 == 0):
-                        # add at beginning
-                        solution[sum].insert(0, blocks[k][l])
-                    else:
-                        # add at end of the list
-                        solution[sum].append(blocks[k][l])
-
-            for item in range(0,(block_size*2-1)):
-                temp += solution[item]
-
-            temp = np.asarray(temp, dtype=float)
-            temp = np.array(temp[:16])
-            temp = np.floor(temp/quantization)
-            temp = np.append(temp, [i, j])
-
-            np.copyto(dcts[block_counter], temp)
-
-            block_counter += 1
-            temp = []
-    print(f"   Przeanalizowano {block_counter} bloków.")
-
-    #----------------------------------------------------------------------------------------
-
-    # 3. SORTOWANIE LEKSYKOGRAFICZNE
     print("3. Sortowanie wektorów cech...")
-    # Sortujemy po wartościach cech, aby podobne bloki znalazły się obok siebie na liście
-    dcts = dcts[np.lexsort(np.rot90(dcts[:, :16]))]
-
-    #----------------------------------------------------------------------------------------
-
-    # 4. DOPASOWYWANIE (MATCHING)
+    descriptors = descriptors[np.lexsort(np.rot90(descriptors[:, :16]))]
     print("4. Szukanie podobnych fragmentów...")
-    sim_array = []
-    search_range = 10  # Jak daleko w posortowanej liście szukać "bliźniaków"
+    matches = find_similar_blocks(descriptors)
+    print(f"   Wstępnie znaleziono {len(matches)} par.")
 
-    # build list
-    for i in range(len(dcts) - search_range):
-        for j in range(1, search_range):
-            # Porównanie wektorów cech (pierwsze 16 wartości)
-            if np.linalg.norm(dcts[i, :16] - dcts[i+j, :16]) <= tsimilarity:
-            
-                # Współrzędne na obrazie (ostatnie 2 wartości)
-                coord1 = dcts[i, -2:]
-                coord2 = dcts[i+j, -2:]
-            
-                # Sprawdzenie dystansu fizycznego na obrazie
-                dist = np.linalg.norm(coord1 - coord2)
-            
-                if dist >= tdistance:
-                    y1, x1 = coord1
-                    y2, x2 = coord2
-                
-                    # Obliczamy wektor przesunięcia (Shift Vector)
-                    shift_y = y1 - y2
-                    shift_x = x1 - x2
-                
-                    # Zapisujemy parę i wektor przesunięcia
-                    sim_array.append([y1, x1, y2, x2, shift_y, shift_x])
-
-    # convert once, after loops
-    sim_array = np.array(sim_array)
-
-    if len(sim_array) == 0:
-        print("\n--- WYNIK: Obraz wydaje się autentyczny (brak podejrzanych powtórzeń). ---")
-        cv2.imshow("Original", image)
-        cv2.waitKey(0)
-        exit()
-
-    print(f"   Wstępnie znaleziono {len(sim_array)} par.")
-
-    # 5. ELIMINACJA FAŁSZYWYCH DOPASOWAŃ (SHIFT VECTOR FILTERING)
     print("5. Weryfikacja spójności przesunięć...")
-
-    # Zliczamy najpopularniejsze wektory przesunięcia
-    # (Prawdziwe fałszerstwo copy-move ma wiele bloków przesuniętych o ten sam wektor)
-    shift_vectors = [(row[4], row[5]) for row in sim_array]
-    shift_counts = Counter(shift_vectors)
-
-    final_matches = []
-    for row in sim_array:
-        shift = (row[4], row[5])
-        # Jeśli dany wektor przesunięcia występuje rzadziej niż limit, odrzucamy go jako szum
-        if shift_counts[shift] >= vector_limit:
-            final_matches.append(row)
-
-    final_matches = np.array(final_matches)
-
-    # 6. RYSOWANIE WYNIKU
+    final_matches = consistent_shift_matches(matches)
     print("6. Generowanie mapy fałszerstwa...")
-
+    prediction_mask = forgery_mask(gray.shape, final_matches)
     if len(final_matches) > 0:
-        for match in final_matches:
-            y1, x1, y2, x2 = int(match[0]), int(match[1]), int(match[2]), int(match[3])
-        
-            # Malujemy na biało oba pasujące do siebie bloki
-            cv2.rectangle(prediction_mask, (x1, y1), (x1+block_size, y1+block_size), 255, -1)
-            cv2.rectangle(prediction_mask, (x2, y2), (x2+block_size, y2+block_size), 255, -1)
-    
-        # Opcjonalnie: Operacje morfologiczne, aby połączyć bliskie kropki w plamy
-        kernel = np.ones((5,5), np.uint8)
-        prediction_mask = cv2.morphologyEx(prediction_mask, cv2.MORPH_CLOSE, kernel)
-    
-        print(f"--- WYNIK Znaleziono {len(final_matches)} pasujących bloków. ---")
+        print(f"WYNIK: Znaleziono {len(final_matches)} pasujących bloków.")
     else:
-        print("--- WYNIK: Po filtracji obraz uznano za czysty. ---")
-
-    # 7. WYŚWIETLANIE
-    def show_scaled(name, img, max_h=800):
-        h, w = img.shape[:2]
-        if h > max_h:
-            scale = max_h / h
-            img = cv2.resize(img, (int(w*scale), int(h*scale)))
-        cv2.imshow(name, img)
+        print("WYNIK: Po filtracji obraz uznano za czysty.")
 
     show_scaled("Oryginalny Obraz", image)
     show_scaled("Wykryte Falszerstwo (Biale pola)", prediction_mask)
-
     print("Naciśnij dowolny klawisz, aby zamknąć...")
     cv2.waitKey(0)
     cv2.destroyAllWindows()
+    return prediction_mask
+
 
 if __name__ == "__main__":
-    full = Path(__file__).resolve()
-    base = full.parent
-
-    images = list_images(base)
-
-    for img_path in images:
+    for img_path in list_images(Path(__file__).resolve().parent):
         print("=" * 60)
         print(f"Przetwarzam: {img_path.name}")
-
         copy_move_forgery_detection(img_path)
-
         print("Zakończono obraz:", img_path.name)

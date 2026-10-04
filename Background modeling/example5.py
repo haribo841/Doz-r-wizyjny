@@ -1,8 +1,10 @@
 ﻿import cv2 as cv
-import numpy as np
+import argparse
 
 # --- Wybierz algorytm i jego parametry ---
-use_mog2 = True  # False -> użyje KNN
+parser = argparse.ArgumentParser(description='Modelowanie tła MOG2 lub KNN')
+parser.add_argument('--algorithm', choices=('mog2', 'knn'), default='mog2')
+use_mog2 = parser.parse_args().algorithm == 'mog2'
 
 if use_mog2:
     # przykład ustawień: history, varThreshold, detectShadows

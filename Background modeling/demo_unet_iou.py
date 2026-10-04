@@ -28,14 +28,14 @@ def iou_metric(y_true, y_pred, num_classes=3):
         true_class = tf.cast(y_true == c, tf.float32)
         pred_class = tf.cast(y_pred == c, tf.float32)
 
-        intersection = tf.reduce_sum(true_class * pred_class)
-        union = tf.reduce_sum(true_class) + tf.reduce_sum(pred_class) - intersection
+        intersection = tf.reduce_sum(true_class * pred_class, axis=None)
+        union = tf.reduce_sum(true_class, axis=None) + tf.reduce_sum(pred_class, axis=None) - intersection
 
         # Unikanie dzielenia przez zero
         iou = tf.where(union == 0, 1.0, intersection / union)
         iou_list.append(iou)
 
-    return tf.reduce_mean(iou_list)
+    return tf.reduce_mean(iou_list, axis=None)
 
 # **Budowa sieci U-Net dla wieloklasowej segmentacji**
 def build_unet(input_shape, num_classes):

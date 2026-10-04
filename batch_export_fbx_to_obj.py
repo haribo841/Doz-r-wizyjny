@@ -7,7 +7,7 @@ output_folder = r"/path/to/folder/to/obj"  # Change to the appropriate path
 
 # Checking if folders exist
 if not os.path.exists(input_folder):
-    raise Exception(f"The input folder does not exist: {input_folder}")
+    raise FileNotFoundError(f"The input folder does not exist: {input_folder}")
 if not os.path.exists(output_folder):
     os.makedirs(output_folder)
 

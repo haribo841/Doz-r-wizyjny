@@ -30,7 +30,7 @@ Close each plot window to continue to the next experiment. To generate just the 
 
 ![Three actual Kalman-filter runs comparing process noise and measurement noise](docs/images/kalman-tracking.png)
 
-Actual output of the existing single-object experiment with its fixed random seed. It compares estimated trajectories, ground truth, and noisy measurements under three Q/R settings. It is not evidence of accuracy on real surveillance video.
+Actual output of the single-object experiment with seed `0` and an explicit NumPy random generator. It compares estimated trajectories, ground truth, and noisy measurements under three Q/R settings. It is not evidence of accuracy on real surveillance video.
 
 ## Technologies and platform
 

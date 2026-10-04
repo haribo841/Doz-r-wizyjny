@@ -16,7 +16,7 @@ def draw_directional_flow(img, flow, step=16):
     y, x = np.mgrid[step//2:h:step, step//2:w:step].astype(np.int32)
     x, y = x.flatten(), y.flatten()  # Spłaszczenie współrzędnych
     fx, fy = flow[y, x, 0], flow[y, x, 1]  # Pobranie wartości przepływu dla współrzędnych
-    magnitude, angle = cv2.cartToPolar(fx, fy, angleInDegrees=True)  # Przepływ w polarnych
+    _, angle = cv2.cartToPolar(fx, fy, angleInDegrees=True)  # Przepływ w polarnych
 
     vis = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
 
@@ -32,7 +32,7 @@ def draw_directional_flow(img, flow, step=16):
         (255, 165, 0)   # Pomarańczowy (315°–360°)
     ]
 
-    for i, (x1, y1, fx1, fy1, ang) in enumerate(zip(x, y, fx, fy, angle)):
+    for x1, y1, fx1, fy1, ang in zip(x, y, fx, fy, angle.ravel()):
         # Określenie koloru na podstawie kąta
         color_idx = int(ang // 45) % len(colors)
         color = colors[color_idx]

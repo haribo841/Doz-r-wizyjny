@@ -19,7 +19,7 @@ class OpticalFlowSuite:
         if not os.path.exists(self.output_folder):
             os.makedirs(self.output_folder)
             
-        print(f"--- INICJALIZACJA SUITE ---")
+        print("--- INICJALIZACJA SUITE ---")
         print(f"Wideo źródłowe: {self.video_path}")
         print(f"Folder wyników: {self.output_folder}")
         
@@ -68,7 +68,7 @@ class OpticalFlowSuite:
         lines = np.vstack([x, y, x + fx, y + fy]).T.reshape(-1, 2, 2)
         lines = np.int32(lines)
 
-        for (x1, y1), (x2, y2), ang, mag in zip(lines[:, 0], lines[:, 1], angle, magnitude):
+        for (x1, y1), (x2, y2), ang, mag in zip(lines[:, 0], lines[:, 1], angle.ravel(), magnitude.ravel()):
             if mag > 1.0:
                 color_idx = int(ang // 45) % 8
                 cv2.arrowedLine(vis, (x1, y1), (x2, y2), colors[color_idx], 1, tipLength=0.3)
@@ -129,11 +129,11 @@ class OpticalFlowSuite:
     def run_parameter_comparison(self, target_frame=100):
         print(f"\n[2/5] Porównanie parametrów algorytmu (Klatka {target_frame})...")
         experiments = {
-            "1_Default":          dict(pyr_scale=0.5, levels=3, winsize=15, iterations=3, poly_n=5, poly_sigma=1.2, flags=0),
-            "2_LargeWin_Smooth":  dict(pyr_scale=0.5, levels=3, winsize=50, iterations=3, poly_n=7, poly_sigma=1.5, flags=0),
-            "3_SmallWin_Detail":  dict(pyr_scale=0.5, levels=3, winsize=5,  iterations=3, poly_n=5, poly_sigma=1.1, flags=0),
-            "4_More_Levels":      dict(pyr_scale=0.5, levels=7, winsize=15, iterations=3, poly_n=5, poly_sigma=1.2, flags=0),
-            "5_More_Iterations":  dict(pyr_scale=0.5, levels=3, winsize=15, iterations=10, poly_n=5, poly_sigma=1.2, flags=0)
+            "1_Default":          {'pyr_scale': 0.5, 'levels': 3, 'winsize': 15, 'iterations': 3, 'poly_n': 5, 'poly_sigma': 1.2, 'flags': 0},
+            "2_LargeWin_Smooth":  {'pyr_scale': 0.5, 'levels': 3, 'winsize': 50, 'iterations': 3, 'poly_n': 7, 'poly_sigma': 1.5, 'flags': 0},
+            "3_SmallWin_Detail":  {'pyr_scale': 0.5, 'levels': 3, 'winsize': 5, 'iterations': 3, 'poly_n': 5, 'poly_sigma': 1.1, 'flags': 0},
+            "4_More_Levels":      {'pyr_scale': 0.5, 'levels': 7, 'winsize': 15, 'iterations': 3, 'poly_n': 5, 'poly_sigma': 1.2, 'flags': 0},
+            "5_More_Iterations":  {'pyr_scale': 0.5, 'levels': 3, 'winsize': 15, 'iterations': 10, 'poly_n': 5, 'poly_sigma': 1.2, 'flags': 0}
         }
         
         cap = cv2.VideoCapture(self.video_path)
@@ -159,7 +159,7 @@ class OpticalFlowSuite:
 
     # --- ZADANIE 3: WPŁYW ROZDZIELCZOŚCI ---
     def run_resolution_analysis(self, target_frame=100):
-        print(f"\n[3/5] Analiza wpływu rozdzielczości...")
+        print("\n[3/5] Analiza wpływu rozdzielczości...")
         cap = cv2.VideoCapture(self.video_path)
         cap.set(cv2.CAP_PROP_POS_FRAMES, target_frame - 1)
         ret, prev = cap.read()
@@ -296,7 +296,7 @@ class OpticalFlowSuite:
             print(f"\nWYSTĄPIŁ BŁĄD KRYTYCZNY: {e}")
         
         total_time = time.time() - start_time
-        print(f"\n--- ZAKOŃCZONO ---")
+        print("\n--- ZAKOŃCZONO ---")
         print(f"Całkowity czas: {total_time:.2f}s")
         print(f"Wszystkie wyniki znajdują się w: {self.output_folder}")
 
