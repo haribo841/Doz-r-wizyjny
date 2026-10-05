@@ -21,7 +21,7 @@ object_paths = {}
 # Słownik: {id_obiektu: (B, G, R)} - kolory
 object_colors = {}
 next_object_id = 0
-color_generator = np.random.default_rng()
+color_generator = np.random.default_rng(0)
 
 # Puste płótno do rysowania trajektorii (aby nie znikały w nowej klatce)
 trajectory_overlay = None
