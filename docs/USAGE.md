@@ -17,6 +17,7 @@ Paths below are relative to the repository root. This is a source collection; th
 | `Background modeling/demo_unet.py`, `demo_unet_iou.py` | U-Net training and segmentation evaluation | TensorFlow, scikit-learn, Pillow; Oxford-IIIT Pet images and masks |
 | `Background modeling/media.py`, `media2.py` | Camera-based MediaPipe experiments | MediaPipe, OpenCV; camera device 0 |
 | `forgery_detection.py`, `Background modeling/trash_detection.py` | Separate image-analysis experiments | Input image folders and algorithm-specific configuration |
+| `Background modeling/najlepszymodel_2.ipynb` | ELA, DCT, noise and ResNet-18 patch features; Gradient Boosting and LOOCV | Own `real/` and `tampered/` images; NumPy, pandas, Pillow, Matplotlib, OpenCV, PyTorch, torchvision, scikit-learn and JupyterLab |
 | `batch_export_fbx_to_obj.py` | Auxiliary asset conversion | Blender's Python runtime (`bpy`), not ordinary Python |
 
 ## Reproduce the README figure
@@ -33,13 +34,56 @@ The current example is validated on Windows with Python 3.13.1, NumPy 2.2.4, Mat
 ## Automated regression checks
 
 ```powershell
-python -m pip install numpy matplotlib scipy opencv-python imutils
+python -m pip install numpy matplotlib scipy opencv-python imutils pillow
 python -m unittest discover -s tests -v
 ```
 
 The tests cover Kalman filtering and synthetic simulations, shared centroid tracking and counting, and image-analysis helpers with synthetic images. They do not open a camera, train a model, or process private recordings. The two counting demos use `centroid_tracker.py` with their original distance and disappearance thresholds.
 
 Verification on 2026-10-04: all 45 regression tests passed, all three Kalman experiments rendered without GUI windows, and two consecutive README-figure renders produced identical files.
+
+Verification on 2026-11-01: all 59 regression tests passed, including 14 notebook regressions. This was checked in the existing Python environment and a separate validation environment. The new cases do not load neural-network weights or use the external dataset.
+
+## Image forgery notebook
+
+The notebook is an educational feature-analysis experiment, not an image-authenticity certification tool. Its Polish explanations and historical observations are retained. Published code keeps ResNet-18, ELA/DCT/noise/CNN feature definitions and ordering, `random_state=42`, LOOCV and the 0.5 decision threshold. Filenames and class-folder names are not input features.
+
+Create a separate environment from the repository root. This CPU setup does not require CUDA:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install numpy==2.2.4 pandas==2.3.3 Pillow==13.0.0 matplotlib==3.10.1 opencv-python==4.12.0.88 scikit-learn==1.8.0 jupyterlab==4.6.5
+python -m pip install torch==2.9.1 torchvision==0.24.1 --index-url https://download.pytorch.org/whl/cpu
+cd "Background modeling"
+python -m jupyterlab najlepszymodel_2.ipynb
+```
+
+The PyTorch/torchvision pair and CPU index follow the [official PyTorch installation instructions](https://pytorch.org/get-started/previous-versions/). For a CUDA environment, select the corresponding official package pair rather than mixing unrelated installations. The notebook automatically uses CUDA when available, otherwise CPU.
+
+Before running all cells, prepare images that you are entitled to process:
+
+```text
+Dataset/
+  real/       # at least two original images
+  tampered/   # at least two manipulated images
+```
+
+Set `DATASET_DIR = Path("Dataset")` in the first code cell, or replace it with your own data directory. Relative paths are resolved from the kernel's working directory, so launch from `Background modeling` as shown above. Supported extensions are JPG, JPEG, PNG, BMP, TIF and TIFF, case-insensitively. Each image must be readable and at least 32 x 32 pixels; missing folders, undersized classes and bad images stop execution with an explanatory path instead of silently changing the sample set. Non-image files and nested directories are skipped, and image paths are sorted.
+
+Choose **Restart Kernel and Run All**. The first ResNet-18 initialization can download pretrained weights through torchvision into its local cache; later runs can reuse that cache. This is not model training on ImageNet. The experiment fits the small Gradient Boosting classifier separately in each leave-one-out fold. JPEG recompression for ELA and DCT is performed in memory, with no fixed temporary image files. Galleries adapt to the number of images, including an empty set of misclassifications.
+
+The published notebook has no saved figures, tables, execution counters or model weights. The complete local `Dataset/` directory is ignored, including TIFF files. Do not commit that directory or the weight cache. Notebook tests isolate its real functions and use synthetic temporary images and a stub CNN embedding, so the ordinary regression suite does not import PyTorch or download weights.
+
+The historical 93% accuracy describes an earlier LOOCV experiment on only 30 images (10 original, 20 manipulated). It is not a new validation report, an independent held-out benchmark, proof of generalization, or a guarantee for other sources. Correlated image variants and the small, imbalanced collection can distort evaluation; explanations of individual errors remain hypotheses.
+
+### Local execution check, 2026-11-01
+
+A fresh kernel completed all 23 published code cells on Windows 11 and Python 3.13.1 using CPU, PyTorch 2.9.1+cpu, torchvision 0.24.1+cpu and `ResNet18_Weights.IMAGENET1K_V1`. The remaining package versions match the setup above; execution used SciPy 1.16.3, nbclient 0.10.2 and ipykernel 7.1.0.
+
+For the existing local collection of 10 original and 20 manipulated images, the feature matrix was 30 x 1048. LOOCV classified 28/30 images correctly (accuracy 0.933333, F1 0.95), with confusion matrix `[[9, 1], [1, 19]]` in class order `real`, `tampered`. This is a local reproduction check on the same small collection, not an independent benchmark. No accuracy target was enforced.
+
+Executed outputs were kept outside the repository. All 30 input-file SHA-256 hashes remained unchanged, and the published notebook retained empty outputs and execution counters.
 
 ## Run a video/image experiment
 
@@ -54,4 +98,4 @@ Missing frames, empty detections, GPU/model compatibility, and large datasets ar
 
 There is no root license yet. The collection includes learning material and integrations whose provenance needs confirmation before a blanket license is added. Third-party code, model weights, and datasets have independent terms.
 
-Do not commit personal recordings, faces, real identifiers, private datasets, or local notebooks merely to make an example reproducible. The documentation intentionally uses synthetic tracking data. Existing untracked datasets/notebooks are not part of this documentation update.
+Do not commit personal recordings, faces, real identifiers or private datasets merely to make an example reproducible. The Kalman documentation intentionally uses synthetic tracking data. The forgery notebook is published as reviewed source only; all images, saved outputs and model weights remain outside Git. Its inclusion does not establish redistribution rights for the local dataset or add a repository-wide license.

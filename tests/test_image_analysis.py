@@ -2,6 +2,8 @@
 
 import ast
 import importlib.util
+from io import BytesIO
+import json
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -9,11 +11,39 @@ import unittest
 from unittest.mock import patch
 
 import cv2
+import matplotlib
 import numpy as np
+from PIL import Image, ImageChops, ImageEnhance
+
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 BACKGROUND = REPOSITORY / 'Background modeling'
+NOTEBOOK = BACKGROUND / 'najlepszymodel_2.ipynb'
+
+
+def notebook_namespace():
+    """Load actual notebook functions, never imports, model weights or demo cells."""
+    notebook = json.loads(NOTEBOOK.read_text(encoding='utf-8'))
+    namespace = {
+        'np': np, 'cv': cv2, 'plt': plt, 'Image': Image,
+        'ImageChops': ImageChops, 'ImageEnhance': ImageEnhance,
+        'BytesIO': BytesIO, 'Path': Path,
+    }
+    code = '\n\n'.join(
+        ''.join(cell['source']) for cell in notebook['cells'] if cell['cell_type'] == 'code'
+    )
+    tree = ast.parse(code)
+    definitions = [node for node in tree.body if isinstance(node, ast.FunctionDef)]
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target = node.targets[0]
+            if isinstance(target, ast.Name) and target.id in {'MIN_IMAGE_SIZE', 'IMAGE_SUFFIXES'}:
+                namespace[target.id] = ast.literal_eval(node.value)
+    exec(compile(ast.Module(body=definitions, type_ignores=[]), str(NOTEBOOK), 'exec'), namespace)
+    return namespace
 
 
 def import_script(filename):
@@ -219,6 +249,204 @@ class DemoHelperTests(unittest.TestCase):
         predicted_labels = np.array([[[0, 1], [1, 2]], [[1, 0], [0, 1]]])
         probabilities = np.eye(3)[predicted_labels]
         self.assertAlmostEqual(float(metric(truth, probabilities)), (1 + 0.75 + 0.5) / 3)
+
+
+class ForgeryNotebookTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.notebook = json.loads(NOTEBOOK.read_text(encoding='utf-8'))
+        cls.functions = notebook_namespace()
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.addCleanup(plt.close, 'all')
+        self.directory = Path(self.temporary.name)
+
+    def image(self, name, size=(32, 32)):
+        filename = self.directory / name
+        filename.parent.mkdir(parents=True, exist_ok=True)
+        Image.new('RGB', size, (40, 70, 100)).save(filename)
+        return filename
+
+    def test_publication_notebook_is_clean_and_all_cells_compile(self):
+        self.assertEqual(self.notebook['nbformat'], 4)
+        identifiers = [cell['id'] for cell in self.notebook['cells']]
+        self.assertEqual(len(identifiers), len(set(identifiers)))
+        for cell in self.notebook['cells']:
+            with self.subTest(cell=cell['id']):
+                self.assertFalse(cell.get('attachments'))
+                if cell['cell_type'] == 'code':
+                    self.assertEqual(cell['outputs'], [])
+                    self.assertIsNone(cell['execution_count'])
+                    compile(''.join(cell['source']), str(NOTEBOOK), 'exec')
+
+    def test_missing_class_folder_has_configuration_hint(self):
+        with self.assertRaisesRegex(FileNotFoundError, 'DATASET_DIR'):
+            self.functions['list_dataset_images'](self.directory / 'missing')
+
+    def test_empty_and_single_image_classes_are_rejected(self):
+        with self.assertRaisesRegex(ValueError, 'minimum dwa'):
+            self.functions['list_dataset_images'](self.directory)
+        self.image('only.png')
+        with self.assertRaisesRegex(ValueError, 'minimum dwa'):
+            self.functions['list_dataset_images'](self.directory)
+
+    def test_listing_sorts_filters_and_validates_images(self):
+        for name in ('z.PNG', 'a.tif', 'b.jpg'):
+            self.image(name)
+        (self.directory / 'notes.txt').write_text('not an image', encoding='utf-8')
+        (self.directory / 'nested.png').mkdir()
+        actual = self.functions['list_dataset_images'](self.directory)
+        self.assertEqual([path.name for path in actual], ['a.tif', 'b.jpg', 'z.PNG'])
+
+    def test_corrupt_and_missing_images_report_their_paths(self):
+        corrupt = self.directory / 'corrupt.png'
+        corrupt.write_bytes(b'not an image')
+        for filename in (corrupt, self.directory / 'missing.png'):
+            with self.subTest(filename=filename.name):
+                with self.assertRaisesRegex(ValueError, filename.name):
+                    self.functions['read_dataset_image'](filename)
+
+    def test_small_images_rejected_and_32_pixel_boundary_supported(self):
+        for size in ((31, 32), (32, 31)):
+            filename = self.image('small.png', size)
+            with self.subTest(size=size):
+                with self.assertRaisesRegex(ValueError, 'small.png.*32 x 32'):
+                    self.functions['read_dataset_image'](filename)
+        boundary = self.image('boundary.png')
+        self.assertEqual(self.functions['read_dataset_image'](boundary).shape, (32, 32, 3))
+
+    def test_invalid_file_in_class_is_not_silently_skipped(self):
+        self.image('good.png')
+        (self.directory / 'bad.jpg').write_bytes(b'broken')
+        with self.assertRaisesRegex(ValueError, 'bad.jpg'):
+            self.functions['list_dataset_images'](self.directory)
+
+    def test_paths_and_labels_keep_classes_separate_from_features(self):
+        for folder in ('real', 'tampered'):
+            for name in ('z.png', 'a.png'):
+                self.image(f'{folder}/{name}')
+        paths, labels, names = self.functions['get_image_paths_and_labels'](
+            self.directory / 'real', self.directory / 'tampered'
+        )
+        np.testing.assert_array_equal(labels, [0, 0, 1, 1])
+        self.assertEqual(names, ['a.png', 'z.png', 'a.png', 'z.png'])
+        self.assertTrue(all(Path(filename).is_file() for filename in paths))
+
+    def test_grid_handles_zero_one_and_more_than_20_images(self):
+        draw = self.functions['show_image_grid']
+        with patch.object(plt, 'show'), patch('builtins.print'):
+            self.assertIsNone(draw([], []))
+            for count in (1, 21):
+                with self.subTest(count=count):
+                    figure = draw([np.zeros((32, 32, 3))] * count, [str(i) for i in range(count)])
+                    self.assertEqual(len(figure.axes), ((count + 4) // 5) * 5)
+                    self.assertEqual(sum(bool(axis.images) for axis in figure.axes), count)
+                    plt.close(figure)
+        with self.assertRaises(ValueError):
+            draw([np.zeros((32, 32, 3))], [])
+        with self.assertRaises(ValueError):
+            draw([], [], columns=0)
+
+    def test_no_misclassifications_does_not_create_a_figure(self):
+        empty = SimpleNamespace(empty=True)
+        with patch.object(plt, 'subplots') as create, patch('builtins.print'):
+            self.assertIsNone(self.functions['show_misclassifications'](empty))
+        create.assert_not_called()
+        cell = next(cell for cell in self.notebook['cells'] if cell.get('id') == '19da3e21')
+        self.assertNotIn('.apply(', ''.join(cell['source']))
+
+    def test_jpeg_roundtrips_are_in_memory_and_preserve_existing_files(self):
+        filename = self.image('source.png')
+        for name in ('temp_ela_resaved.jpg', 'temp_dct_resaved.jpg'):
+            (self.directory / name).write_bytes(b'keep this existing file')
+        before = {path.name: path.read_bytes() for path in self.directory.iterdir()}
+        original_save = Image.Image.save
+        with patch.object(Image.Image, 'save', autospec=True, side_effect=original_save) as save:
+            self.functions['perform_ela_gray'](filename)
+        self.assertIsInstance(save.call_args.args[1], BytesIO)
+        self.functions['perform_dct_inconsistency'](filename)
+        self.assertEqual(before, {path.name: path.read_bytes() for path in self.directory.iterdir()})
+
+    def test_in_memory_ela_and_dct_match_file_roundtrips(self):
+        filename = self.image('source.png')
+        with Image.open(filename) as source_image:
+            original = source_image.convert('RGB')
+        ela_path = self.directory / 'comparison-ela.jpg'
+        original.save(ela_path, 'JPEG', quality=90)
+        with Image.open(ela_path) as compressed_image:
+            expected_ela = np.array(ImageEnhance.Brightness(
+                ImageChops.difference(original, compressed_image.convert('RGB'))
+            ).enhance(15).convert('L'))
+        _, actual_ela = self.functions['perform_ela_gray'](filename)
+        np.testing.assert_array_equal(actual_ela, expected_ela)
+        _, actual_dct = self.functions['perform_dct_inconsistency'](filename)
+        self.assertEqual(actual_dct.shape, (32, 32))
+        self.assertTrue(np.all(np.isfinite(actual_dct)))
+        gray = cv2.imread(str(filename), cv2.IMREAD_GRAYSCALE)
+        dct_path = self.directory / 'comparison-dct.jpg'
+        self.assertTrue(cv2.imwrite(str(dct_path), gray, [cv2.IMWRITE_JPEG_QUALITY, 90]))
+        success, encoded = cv2.imencode('.jpg', gray, [cv2.IMWRITE_JPEG_QUALITY, 90])
+        self.assertTrue(success)
+        np.testing.assert_array_equal(
+            cv2.imdecode(encoded, cv2.IMREAD_GRAYSCALE),
+            cv2.imread(str(dct_path), cv2.IMREAD_GRAYSCALE),
+        )
+        with patch.object(cv2, 'imwrite', side_effect=AssertionError('No image may be saved')):
+            self.functions['perform_dct_inconsistency'](filename)
+
+    def test_features_are_finite_and_independent_of_names_and_classes(self):
+        first = self.image('real/first.png')
+        second = self.image('tampered/renamed.png')
+        original = self.functions.get('extract_features_patch_cnn')
+        self.functions['extract_features_patch_cnn'] = lambda _path, grid=(3, 3): (
+            [np.arange(1024, dtype=np.float32)],
+            [f'cnn_patch_{index}' for index in range(1024)],
+            {'cnn': {'grid_y': grid[0], 'grid_x': grid[1], 'dim': 1024}},
+        )
+        try:
+            vector, names, _ = self.functions['extract_features'](first)
+            other, other_names, _ = self.functions['extract_features'](second)
+        finally:
+            self.functions['extract_features_patch_cnn'] = original
+        self.assertEqual(vector.shape, (1048,))
+        self.assertEqual(len(names), len(vector))
+        self.assertTrue(np.all(np.isfinite(vector)))
+        self.assertEqual(names, other_names)
+        self.assertNotIn('filename', names)
+        self.assertNotIn('label', names)
+        np.testing.assert_array_equal(vector, other)
+
+    def test_loocv_clones_the_pipeline_for_each_fold(self):
+        cell = next(cell for cell in self.notebook['cells'] if cell.get('id') == '89e1951d')
+        loop = next(node for node in ast.parse(''.join(cell['source'])).body if isinstance(node, ast.For))
+        models = []
+
+        class FakeModel:
+            def fit(self, features, labels):
+                self.fitted_shape = (features.shape, labels.shape)
+                return self
+
+            def predict_proba(self, _features):
+                return np.array([[0.75, 0.25]])
+
+        def clone_model(_base):
+            model = FakeModel()
+            models.append(model)
+            return model
+
+        folds = [(np.array([j for j in range(4) if j != i]), np.array([i])) for i in range(4)]
+        namespace = {
+            'clone': clone_model, 'base_model': object(),
+            'loo': SimpleNamespace(split=lambda _values: iter(folds)),
+            'X': np.zeros((4, 2)), 'y': np.array([0, 0, 1, 1]),
+            'filenames': ['a', 'b', 'c', 'd'], 'y_true': [], 'y_pred': [], 'y_prob': [], 'test_files': [],
+        }
+        exec(compile(ast.Module(body=[loop], type_ignores=[]), str(NOTEBOOK), 'exec'), namespace)
+        self.assertEqual(len({id(model) for model in models}), 4)
+        self.assertTrue(all(model.fitted_shape == ((3, 2), (3,)) for model in models))
+        self.assertEqual(namespace['test_files'], ['a', 'b', 'c', 'd'])
 
 
 if __name__ == '__main__':

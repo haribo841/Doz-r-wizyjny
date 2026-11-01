@@ -21,6 +21,9 @@ env/
 *.csv
 *.log
 
+# Local inputs for the forgery-analysis notebook, including TIFF files.
+/Background modeling/Dataset/
+
 # Reviewed documentation figures are part of the portfolio.
 !docs/images/*.png
 

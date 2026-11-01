@@ -10,6 +10,7 @@ Python laboratory experiments in background modeling, motion analysis, object tr
 - Optical flow, trajectories, counting, and activity heatmaps.
 - Linear Kalman filtering and multi-object tracking on synthetic measurements.
 - Separate ROI, SAM, U-Net, and image-forgery experiments, with their own input and model requirements.
+- A [notebook for image-forgery feature analysis](Background%20modeling/najlepszymodel_2.ipynb): ELA, DCT, noise statistics, ResNet-18 patch embeddings, and Gradient Boosting with leave-one-out evaluation. The notebook is published without images, saved outputs, or model weights.
 
 ## Quick start: no camera or dataset needed
 
@@ -41,6 +42,8 @@ The synthetic example was checked on Windows with Python 3.12 and 3.13. It uses 
 ## Scope and documentation
 
 See the [experiment guide](docs/USAGE.md) for file groups, missing media/models, privacy precautions, and reproduction details. Many older scripts contain local input paths that must be adjusted. Models, external datasets, and private recordings are not included in the quick start.
+
+For the forgery notebook, follow the [external-data setup](docs/USAGE.md#image-forgery-notebook). It requires your own `real/` and `tampered/` images; `DATASET_DIR` is its only user configuration. Its historical 93% result comes from a small 30-image experiment, not an independently validated detector or a guarantee for other data.
 
 No repository-wide license has been selected. Ask the author before reuse, and check dataset/model licenses separately. The [previous README](docs/archive/README-2026-09-25.md) is preserved unchanged.
 
