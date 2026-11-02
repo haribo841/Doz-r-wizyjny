@@ -350,12 +350,26 @@ class ForgeryNotebookTests(unittest.TestCase):
             draw([], [], columns=0)
 
     def test_no_misclassifications_does_not_create_a_figure(self):
-        empty = SimpleNamespace(empty=True)
+        class EmptyResults:
+            empty = True
+
+            def __init__(self):
+                self.columns = {}
+
+            def iterrows(self):
+                return iter(())
+
+            def __setitem__(self, key, values):
+                self.columns[key] = values
+
+        empty = EmptyResults()
         with patch.object(plt, 'subplots') as create, patch('builtins.print'):
             self.assertIsNone(self.functions['show_misclassifications'](empty))
         create.assert_not_called()
         cell = next(cell for cell in self.notebook['cells'] if cell.get('id') == '19da3e21')
-        self.assertNotIn('.apply(', ''.join(cell['source']))
+        namespace = {'wrong_df': empty, 'Path': Path}
+        exec(compile(''.join(cell['source']), str(NOTEBOOK), 'exec'), namespace)
+        self.assertEqual(empty.columns['full_path'], [])
 
     def test_jpeg_roundtrips_are_in_memory_and_preserve_existing_files(self):
         filename = self.image('source.png')
@@ -420,7 +434,19 @@ class ForgeryNotebookTests(unittest.TestCase):
 
     def test_loocv_clones_the_pipeline_for_each_fold(self):
         cell = next(cell for cell in self.notebook['cells'] if cell.get('id') == '89e1951d')
-        loop = next(node for node in ast.parse(''.join(cell['source'])).body if isinstance(node, ast.For))
+        tree = ast.parse(''.join(cell['source']))
+        pipeline = next(
+            node.value for node in tree.body
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Name) and node.value.func.id == 'make_pipeline'
+        )
+        pipeline_options = {keyword.arg: ast.literal_eval(keyword.value) for keyword in pipeline.keywords}
+        self.assertIn('memory', pipeline_options)
+        self.assertIsNone(pipeline_options['memory'])
+        classifier = pipeline.args[1]
+        classifier_options = {keyword.arg: ast.literal_eval(keyword.value) for keyword in classifier.keywords}
+        self.assertEqual(classifier_options, {'random_state': 42, 'learning_rate': 0.1})
+        loop = next(node for node in tree.body if isinstance(node, ast.For))
         models = []
 
         class FakeModel:
